@@ -109,6 +109,7 @@ printHelp (int argc, char **argv)
   print_info ("\n");
   print_info ("                     -pc 0/X                  = disable/enable the display of every Xth point's principal curvatures as lines (default "); print_value ("disabled"); print_info (")\n");
   print_info ("                     -pc_scale X              = resize the principal curvatures vectors size to X (default "); print_value ("0.02"); print_info (")\n");
+  print_info ("                     -screenshot filename     = save screenshot to filename and exit\n");
   print_info ("\n");
 
   print_info ("\n(Note: for multiple .pcd files, provide multiple -{fc,ps,opaque} parameters; they will be automatically assigned to the right file)\n");
@@ -485,17 +486,24 @@ main (int argc, char** argv)
     p->addCoordinateSystem (axes, ax_x, ax_y, ax_z);
   }
 
-  if (ph)
-  {
-    print_highlight ("Setting the global Y range for all histograms to: "); print_value ("%f -> %f\n", min_p, max_p);
-    ph->setGlobalYRange (min_p, max_p);
-    ph->updateWindowPositions ();
-    if (p)
-      p->spin ();
-    else
-      ph->spin ();
+  std::string screenshot_filename = "";
+  pcl::console::parse_argument (argc, argv, "-screenshot", screenshot_filename);
+  if(screenshot_filename.length() > 0) {
+    p->saveScreenshot(screenshot_filename);
   }
-  else if (p)
-    p->spin ();
+  else {
+    if (ph)
+    {
+      print_highlight ("Setting the global Y range for all histograms to: "); print_value ("%f -> %f\n", min_p, max_p);
+      ph->setGlobalYRange (min_p, max_p);
+      ph->updateWindowPositions ();
+      if (p)
+        p->spin ();
+      else
+        ph->spin ();
+    }
+    else if (p)
+      p->spin ();
+  }
 }
 /* ]--- */
