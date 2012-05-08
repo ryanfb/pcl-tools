@@ -4,6 +4,7 @@ Makefile
 cmake_install.cmake
 statistical_removal
 pcd2ply
+pcdnormal2ply
 ply2pcd
 pcd_viewer
 PCDViewer.app/
