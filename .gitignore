@@ -6,5 +6,6 @@ statistical_removal
 pcd2ply
 pcdnormal2ply
 ply2pcd
+normal_estimation_omp
 pcd_viewer
 PCDViewer.app/
