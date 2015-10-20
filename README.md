@@ -7,6 +7,8 @@ Mesh processing utilities based on the Point Cloud Library: <http://pointclouds.
 * `ply2pcd` - convert PLY files to PCD files
 * `statistical_removal` - statistical outliers removal, based on <http://pointclouds.org/documentation/tutorials/statistical_outlier.php>
 * `pcd_viewer` - PCL PCD viewer with added `-screenshot` option to take a screenshot and exit
+* `pcdnormal2ply` - convert PCD files with normals to PLY files
+* `normal_estimation_omp` - estimate normals in a PCD using PCL's OpenMP implementation, based on <http://pointclouds.org/documentation/tutorials/normal_estimation.php>
 
 Usage
 -----
