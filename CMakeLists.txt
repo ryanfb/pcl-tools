@@ -4,7 +4,7 @@ project(pcl-tools)
 
 find_package(PCL 1.2 REQUIRED)
 find_package(VTK REQUIRED)
-find_package(Boost COMPONENTS system REQUIRED)
+find_package(Boost COMPONENTS system thread REQUIRED)
 
 include_directories(${PCL_INCLUDE_DIRS} ${VTK_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS})
 link_directories(${PCL_LIBRARY_DIRS} ${VTK_LIBRARY_DIRS} ${Boost_LIBRARY_DIRS})

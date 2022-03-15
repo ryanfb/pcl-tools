@@ -37,19 +37,17 @@
  * $Id$
  *
  */
+
+#include <thread>
+
 // PCL
 #include <pcl/common/common.h>
 #include <pcl/io/pcd_io.h>
-#include <cfloat>
-#include <pcl/visualization/eigen.h>
-//#include <pcl/visualization/vtk.h>
-#include <pcl/visualization/point_cloud_handlers.h>
+#include <limits>
 #include <pcl/visualization/pcl_visualizer.h>
 #include <pcl/visualization/image_viewer.h>
 #include <pcl/visualization/histogram_visualizer.h>
-#if VTK_MAJOR_VERSION>=6 || (VTK_MAJOR_VERSION==5 && VTK_MINOR_VERSION>6)
 #include <pcl/visualization/pcl_plotter.h>
-#endif
 #include <pcl/visualization/point_picking_event.h>
 #include <pcl/console/print.h>
 #include <pcl/console/parse.h>
@@ -57,15 +55,16 @@
 #include <pcl/search/kdtree.h>
 #include <vtkPolyDataReader.h>
 
+using namespace std::chrono_literals;
 using namespace pcl::console;
 
-typedef pcl::visualization::PointCloudColorHandler<pcl::PCLPointCloud2> ColorHandler;
-typedef ColorHandler::Ptr ColorHandlerPtr;
-typedef ColorHandler::ConstPtr ColorHandlerConstPtr;
+using ColorHandler = pcl::visualization::PointCloudColorHandler<pcl::PCLPointCloud2>;
+using ColorHandlerPtr = ColorHandler::Ptr;
+using ColorHandlerConstPtr = ColorHandler::ConstPtr;
 
-typedef pcl::visualization::PointCloudGeometryHandler<pcl::PCLPointCloud2> GeometryHandler;
-typedef GeometryHandler::Ptr GeometryHandlerPtr;
-typedef GeometryHandler::ConstPtr GeometryHandlerConstPtr;
+using GeometryHandler = pcl::visualization::PointCloudGeometryHandler<pcl::PCLPointCloud2>;
+using GeometryHandlerPtr = GeometryHandler::Ptr;
+using GeometryHandlerConstPtr = GeometryHandler::ConstPtr;
 
 #define NORMALS_SCALE 0.01f
 #define PC_SCALE 0.001f
@@ -129,7 +128,6 @@ printHelp (int, char **argv)
   print_info ("\n");
   print_info ("                     -pc 0/X                  = disable/enable the display of every Xth point's principal curvatures as lines (default "); print_value ("disabled"); print_info (")\n");
   print_info ("                     -pc_scale X              = resize the principal curvatures vectors size to X (default "); print_value ("0.02"); print_info (")\n");
-  print_info ("                     -screenshot filename     = save screenshot to filename and exit\n");
   print_info ("\n");
   print_info ("                     -immediate_rendering 0/1 = use immediate mode rendering to draw the data (default: "); print_value ("disabled"); print_info (")\n");
   print_info ("                                                Note: the use of immediate rendering will enable the visualization of larger datasets at the expense of extra RAM.\n");
@@ -147,11 +145,9 @@ printHelp (int, char **argv)
 }
 
 // Global visualizer object
-#if VTK_MAJOR_VERSION>=6 || (VTK_MAJOR_VERSION==5 && VTK_MINOR_VERSION>6)
 pcl::visualization::PCLPlotter ph_global;
-#endif
-boost::shared_ptr<pcl::visualization::PCLVisualizer> p;
-std::vector<boost::shared_ptr<pcl::visualization::ImageViewer> > imgs;
+pcl::visualization::PCLVisualizer::Ptr p;
+std::vector<pcl::visualization::ImageViewer::Ptr > imgs;
 pcl::search::KdTree<pcl::PointXYZ> search;
 pcl::PCLPointCloud2::Ptr cloud;
 pcl::PointCloud<pcl::PointXYZ>::Ptr xyzcloud;
@@ -171,7 +167,7 @@ pp_callback (const pcl::visualization::PointPickingEvent& event, void* cookie)
     search.setInputCloud (xyzcloud);
   }
   // Return the correct index in the cloud instead of the index on the screen
-  std::vector<int> indices (1);
+  pcl::Indices indices (1);
   std::vector<float> distances (1);
 
   // Because VTK/OpenGL stores data without NaN, we lose the 1-1 correspondence, so we must search for the real point
@@ -193,24 +189,21 @@ pp_callback (const pcl::visualization::PointPickingEvent& event, void* cookie)
   }
 
   // Else, if a single point has been selected
-  std::stringstream ss;
-  ss << idx;
+  const std::string idx_string = std::to_string(idx);
   // Get the cloud's fields
-  for (size_t i = 0; i < cloud->fields.size (); ++i)
+  for (std::size_t i = 0; i < cloud->fields.size (); ++i)
   {
     if (!isMultiDimensionalFeatureField (cloud->fields[i]))
       continue;
     PCL_INFO ("Multidimensional field found: %s\n", cloud->fields[i].name.c_str ());
-#if VTK_MAJOR_VERSION>=6 || (VTK_MAJOR_VERSION==5 && VTK_MINOR_VERSION>6)
-    ph_global.addFeatureHistogram (*cloud, cloud->fields[i].name, idx, ss.str ());
+    ph_global.addFeatureHistogram (*cloud, cloud->fields[i].name, idx, idx_string);
     ph_global.renderOnce ();
-#endif
   }
   if (p)
   {
     pcl::PointXYZ pos;
     event.getPoint (pos.x, pos.y, pos.z);
-    p->addText3D<pcl::PointXYZ> (ss.str (), pos, 0.0005, 1.0, 1.0, 1.0, ss.str ());
+    p->addText3D<pcl::PointXYZ> (idx_string, pos, 0.0005, 1.0, 1.0, 1.0, idx_string);
   }
   
 }
@@ -219,7 +212,7 @@ pp_callback (const pcl::visualization::PointPickingEvent& event, void* cookie)
 int
 main (int argc, char** argv)
 {
-  srand (static_cast<unsigned int> (time (0)));
+  srand (static_cast<unsigned int> (time (nullptr)));
 
   print_info ("The viewer window provides interactive commands; for help, press 'h' or 'H' from within the window.\n");
 
@@ -238,7 +231,7 @@ main (int argc, char** argv)
   std::vector<int> p_file_indices   = pcl::console::parse_file_extension_argument (argc, argv, ".pcd");
   std::vector<int> vtk_file_indices = pcl::console::parse_file_extension_argument (argc, argv, ".vtk");
 
-  if (p_file_indices.size () == 0 && vtk_file_indices.size () == 0)
+  if (p_file_indices.empty () && vtk_file_indices.empty ())
   {
     print_error ("No .PCD or .VTK file given. Nothing to visualize.\n");
     return (-1);
@@ -252,8 +245,8 @@ main (int argc, char** argv)
   bool fcolorparam = pcl::console::parse_multiple_3x_arguments (argc, argv, "-fc", fcolor_r, fcolor_g, fcolor_b);
 
   std::vector<double> pose_x, pose_y, pose_z, pose_roll, pose_pitch, pose_yaw;
-  bool poseparam = pcl::console::parse_multiple_3x_arguments (argc, argv, "-position", pose_x, pose_y, pose_z);
-  poseparam &= pcl::console::parse_multiple_3x_arguments (argc, argv, "-orientation", pose_roll, pose_pitch, pose_yaw);
+  pcl::console::parse_multiple_3x_arguments (argc, argv, "-position", pose_x, pose_y, pose_z);
+  pcl::console::parse_multiple_3x_arguments (argc, argv, "-orientation", pose_roll, pose_pitch, pose_yaw);
 
   std::vector<int> psize;
   pcl::console::parse_multiple_arguments (argc, argv, "-ps", psize);
@@ -300,21 +293,21 @@ main (int argc, char** argv)
   }
 
   // Multiview enabled?
-  int y_s = 0, x_s = 0;
+  int x_s = 0;
   double x_step = 0, y_step = 0;
   if (mview)
   {
     print_highlight ("Multi-viewport rendering enabled.\n");
 
-    y_s = static_cast<int>(floor (sqrt (static_cast<float>(p_file_indices.size () + vtk_file_indices.size ()))));
-    x_s = y_s + static_cast<int>(ceil (double (p_file_indices.size () + vtk_file_indices.size ()) / double (y_s) - y_s));
+    int y_s = static_cast<int>(std::floor (sqrt (static_cast<float>(p_file_indices.size () + vtk_file_indices.size ()))));
+    x_s = y_s + static_cast<int>(std::ceil (double (p_file_indices.size () + vtk_file_indices.size ()) / double (y_s) - y_s));
 
-    if (p_file_indices.size () != 0)
+    if (!p_file_indices.empty ())
     {
       print_highlight ("Preparing to load "); print_value ("%d", p_file_indices.size ()); print_info (" pcd files.\n");
     }
 
-    if (vtk_file_indices.size () != 0)
+    if (!vtk_file_indices.empty ())
     {
       print_highlight ("Preparing to load "); print_value ("%d", vtk_file_indices.size ()); print_info (" vtk files.\n");
     }
@@ -327,23 +320,22 @@ main (int argc, char** argv)
   }
 
   // Fix invalid multiple arguments
-  if (psize.size () != p_file_indices.size () && psize.size () > 0)
-    for (size_t i = psize.size (); i < p_file_indices.size (); ++i)
+  if (psize.size () != p_file_indices.size () && !psize.empty ())
+    for (std::size_t i = psize.size (); i < p_file_indices.size (); ++i)
       psize.push_back (1);
-  if (opaque.size () != p_file_indices.size () && opaque.size () > 0)
-    for (size_t i = opaque.size (); i < p_file_indices.size (); ++i)
+  if (opaque.size () != p_file_indices.size () && !opaque.empty ())
+    for (std::size_t i = opaque.size (); i < p_file_indices.size (); ++i)
       opaque.push_back (1.0);
 
-  if (shadings.size () != p_file_indices.size () && shadings.size () > 0)
-    for (size_t i = shadings.size (); i < p_file_indices.size (); ++i)
-      shadings.push_back ("flat");
+  if (shadings.size () != p_file_indices.size () && !shadings.empty ())
+    for (std::size_t i = shadings.size (); i < p_file_indices.size (); ++i)
+      shadings.emplace_back("flat");
 
-  // Create the PCLVisualizer object
-#if VTK_MAJOR_VERSION>=6 || (VTK_MAJOR_VERSION==5 && VTK_MINOR_VERSION>6)
-  boost::shared_ptr<pcl::visualization::PCLPlotter> ph;
-#endif  
+  // Create the PCLPlotter object
+  pcl::visualization::PCLPlotter::Ptr ph;
   // Using min_p, max_p to set the global Y min/max range for the histogram
-  float min_p = FLT_MAX; float max_p = -FLT_MAX;
+  float min_p = std::numeric_limits<float>::max();
+  float max_p = std::numeric_limits<float>::lowest();
 
   int k = 0, l = 0, viewport = 0;
   // Load the data files
@@ -353,7 +345,7 @@ main (int argc, char** argv)
   GeometryHandlerPtr geometry_handler;
 
   // Go through VTK files
-  for (size_t i = 0; i < vtk_file_indices.size (); ++i)
+  for (std::size_t i = 0; i < vtk_file_indices.size (); ++i)
   {
     // Load file
     tt.tic ();
@@ -383,46 +375,45 @@ main (int argc, char** argv)
     }
 
     // Add as actor
-    std::stringstream cloud_name ("vtk-");
-    cloud_name << argv[vtk_file_indices.at (i)] << "-" << i;
-    p->addModelFromPolyData (polydata, cloud_name.str (), viewport);
+    const std::string cloud_name = "vtk-" + std::string(argv[vtk_file_indices.at (i)]) + "-" + std::to_string(i);
+    p->addModelFromPolyData (polydata, cloud_name, viewport);
 
     // Change the shape rendered color
     if (fcolorparam && fcolor_r.size () > i && fcolor_g.size () > i && fcolor_b.size () > i)
-      p->setShapeRenderingProperties (pcl::visualization::PCL_VISUALIZER_COLOR, fcolor_r[i], fcolor_g[i], fcolor_b[i], cloud_name.str ());
+      p->setShapeRenderingProperties (pcl::visualization::PCL_VISUALIZER_COLOR, fcolor_r[i], fcolor_g[i], fcolor_b[i], cloud_name);
 
     // Change the shape rendered point size
-    if (psize.size () > 0)
-      p->setShapeRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, psize.at (i), cloud_name.str ());
+    if (!psize.empty ())
+      p->setShapeRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, psize.at (i), cloud_name);
 
     // Change the shape rendered opacity
-    if (opaque.size () > 0)
-      p->setShapeRenderingProperties (pcl::visualization::PCL_VISUALIZER_OPACITY, opaque.at (i), cloud_name.str ());
+    if (!opaque.empty ())
+      p->setShapeRenderingProperties (pcl::visualization::PCL_VISUALIZER_OPACITY, opaque.at (i), cloud_name);
 
     // Change the shape rendered shading
-    if (shadings.size () > 0)
+    if (!shadings.empty ())
     {
       if (shadings[i] == "flat")
       {
         print_highlight (stderr, "Setting shading property for %s to FLAT.\n", argv[vtk_file_indices.at (i)]);
-        p->setShapeRenderingProperties (pcl::visualization::PCL_VISUALIZER_SHADING, pcl::visualization::PCL_VISUALIZER_SHADING_FLAT, cloud_name.str ());
+        p->setShapeRenderingProperties (pcl::visualization::PCL_VISUALIZER_SHADING, pcl::visualization::PCL_VISUALIZER_SHADING_FLAT, cloud_name);
       }
       else if (shadings[i] == "gouraud")
       {
         print_highlight (stderr, "Setting shading property for %s to GOURAUD.\n", argv[vtk_file_indices.at (i)]);
-        p->setShapeRenderingProperties (pcl::visualization::PCL_VISUALIZER_SHADING, pcl::visualization::PCL_VISUALIZER_SHADING_GOURAUD, cloud_name.str ());
+        p->setShapeRenderingProperties (pcl::visualization::PCL_VISUALIZER_SHADING, pcl::visualization::PCL_VISUALIZER_SHADING_GOURAUD, cloud_name);
       }
       else if (shadings[i] == "phong")
       {
         print_highlight (stderr, "Setting shading property for %s to PHONG.\n", argv[vtk_file_indices.at (i)]);
-        p->setShapeRenderingProperties (pcl::visualization::PCL_VISUALIZER_SHADING, pcl::visualization::PCL_VISUALIZER_SHADING_PHONG, cloud_name.str ());
+        p->setShapeRenderingProperties (pcl::visualization::PCL_VISUALIZER_SHADING, pcl::visualization::PCL_VISUALIZER_SHADING_PHONG, cloud_name);
       }
     }
   }
 
   pcl::PCLPointCloud2::Ptr cloud;
   // Go through PCD files
-  for (size_t i = 0; i < p_file_indices.size (); ++i)
+  for (std::size_t i = 0; i < p_file_indices.size (); ++i)
   {
     tt.tic ();
     cloud.reset (new pcl::PCLPointCloud2);
@@ -448,22 +439,18 @@ main (int argc, char** argv)
       origin.block<3, 1> (0, 0) = (pose * Eigen::Translation3f (origin.block<3, 1> (0, 0))).translation ();
     }
 
-    std::stringstream cloud_name;
+    std::string cloud_name;
 
     // ---[ Special check for 1-point multi-dimension histograms
     if (cloud->fields.size () == 1 && isMultiDimensionalFeatureField (cloud->fields[0]))
     {
-      cloud_name << argv[p_file_indices.at (i)];
+      cloud_name = argv[p_file_indices.at (i)];
 
-#if VTK_MAJOR_VERSION>=6 || (VTK_MAJOR_VERSION==5 && VTK_MINOR_VERSION>6)
       if (!ph)
         ph.reset (new pcl::visualization::PCLPlotter);
-#endif
 
       pcl::getMinMax (*cloud, 0, cloud->fields[0].name, min_p, max_p);
-#if VTK_MAJOR_VERSION>=6 || (VTK_MAJOR_VERSION==5 && VTK_MINOR_VERSION>6)
-      ph->addFeatureHistogram (*cloud, cloud->fields[0].name, cloud_name.str ());
-#endif
+      ph->addFeatureHistogram (*cloud, cloud->fields[0].name, cloud_name);
       print_info ("[done, "); print_value ("%g", tt.toc ()); print_info (" ms : "); print_value ("%d", cloud->fields[0].count); print_info (" points]\n");
       continue;
     }
@@ -474,9 +461,8 @@ main (int argc, char** argv)
       print_info ("[done, "); print_value ("%g", tt.toc ()); print_info (" ms : "); print_value ("%u", cloud->width * cloud->height); print_info (" points]\n");
       print_info ("Available dimensions: "); print_value ("%s\n", pcl::getFieldsList (*cloud).c_str ());
       
-      std::stringstream name;
-      name << "PCD Viewer :: " << argv[p_file_indices.at (i)];
-      pcl::visualization::ImageViewer::Ptr img (new pcl::visualization::ImageViewer (name.str ()));
+      std::string name = "PCD Viewer :: " + std::string(argv[p_file_indices.at (i)]);
+      pcl::visualization::ImageViewer::Ptr img (new pcl::visualization::ImageViewer (name));
       pcl::PointCloud<pcl::RGB> rgb_cloud;
       pcl::fromPCLPointCloud2 (*cloud, rgb_cloud);
 
@@ -486,7 +472,7 @@ main (int argc, char** argv)
       continue;
     }
 
-    cloud_name << argv[p_file_indices.at (i)] << "-" << i;
+    cloud_name += std::string(argv[p_file_indices.at (i)]) + "-" + std::to_string(i);
 
     // Create the PCLVisualizer object here on the first encountered XYZ file
     if (!p)
@@ -540,8 +526,8 @@ main (int argc, char** argv)
     // Add the dataset with a XYZ and a random handler
     geometry_handler.reset (new pcl::visualization::PointCloudGeometryHandlerXYZ<pcl::PCLPointCloud2> (cloud));
     // Add the cloud to the renderer
-    //p->addPointCloud<pcl::PointXYZ> (cloud_xyz, geometry_handler, color_handler, cloud_name.str (), viewport);
-    p->addPointCloud (cloud, geometry_handler, color_handler, origin, orientation, cloud_name.str (), viewport);
+    //p->addPointCloud<pcl::PointXYZ> (cloud_xyz, geometry_handler, color_handler, cloud_name, viewport);
+    p->addPointCloud (cloud, geometry_handler, color_handler, origin, orientation, cloud_name, viewport);
 
 
     if (mview)
@@ -567,9 +553,8 @@ main (int argc, char** argv)
 
       pcl::PointCloud<pcl::Normal>::Ptr cloud_normals (new pcl::PointCloud<pcl::Normal>);
       pcl::fromPCLPointCloud2 (*cloud, *cloud_normals);
-      std::stringstream cloud_name_normals;
-      cloud_name_normals << argv[p_file_indices.at (i)] << "-" << i << "-normals";
-      p->addPointCloudNormals<pcl::PointXYZ, pcl::Normal> (cloud_xyz, cloud_normals, normals, normals_scale, cloud_name_normals.str (), viewport);
+      const std::string cloud_name_normals = std::string(argv[p_file_indices.at (i)]) + "-" + std::to_string(i) + "-normals";
+      p->addPointCloudNormals<pcl::PointXYZ, pcl::Normal> (cloud_xyz, cloud_normals, normals, normals_scale, cloud_name_normals, viewport);
     }
 
     // If principal curvature lines are enabled
@@ -602,15 +587,14 @@ main (int argc, char** argv)
       pcl::fromPCLPointCloud2 (*cloud, *cloud_normals);
       pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr cloud_pc (new pcl::PointCloud<pcl::PrincipalCurvatures>);
       pcl::fromPCLPointCloud2 (*cloud, *cloud_pc);
-      std::stringstream cloud_name_normals_pc;
-      cloud_name_normals_pc << argv[p_file_indices.at (i)] << "-" << i << "-normals";
+      std::string cloud_name_normals_pc = std::string(argv[p_file_indices.at (i)]) + "-" + std::to_string(i) + "-normals";
       int factor = (std::min)(normals, pc);
-      p->addPointCloudNormals<pcl::PointXYZ, pcl::Normal> (cloud_xyz, cloud_normals, factor, normals_scale, cloud_name_normals_pc.str (), viewport);
-      p->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_COLOR, 1.0, 0.0, 0.0, cloud_name_normals_pc.str ());
-      p->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3, cloud_name_normals_pc.str ());
-      cloud_name_normals_pc << "-pc";
-      p->addPointCloudPrincipalCurvatures<pcl::PointXYZ, pcl::Normal> (cloud_xyz, cloud_normals, cloud_pc, factor, pc_scale, cloud_name_normals_pc.str (), viewport);
-      p->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3, cloud_name_normals_pc.str ());
+      p->addPointCloudNormals<pcl::PointXYZ, pcl::Normal> (cloud_xyz, cloud_normals, factor, normals_scale, cloud_name_normals_pc, viewport);
+      p->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_COLOR, 1.0, 0.0, 0.0, cloud_name_normals_pc);
+      p->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3, cloud_name_normals_pc);
+      cloud_name_normals_pc += "-pc";
+      p->addPointCloudPrincipalCurvatures<pcl::PointXYZ, pcl::Normal> (cloud_xyz, cloud_normals, cloud_pc, factor, pc_scale, cloud_name_normals_pc, viewport);
+      p->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3, cloud_name_normals_pc);
     }
 
     // Add every dimension as a possible color
@@ -618,54 +602,58 @@ main (int argc, char** argv)
     {
       int rgb_idx = 0;
       int label_idx = 0;
-      for (size_t f = 0; f < cloud->fields.size (); ++f)
+      int invalid_fields_count = 0;
+      for (std::size_t f = 0; f < cloud->fields.size (); ++f)
       {
+        if (!isValidFieldName (cloud->fields[f].name))
+        {
+          ++invalid_fields_count;
+          continue;
+        }
         if (cloud->fields[f].name == "rgb" || cloud->fields[f].name == "rgba")
         {
-          rgb_idx = f + 1;
+          rgb_idx = f - invalid_fields_count + 1 /* first is ColorHandlerRandom */;
           color_handler.reset (new pcl::visualization::PointCloudColorHandlerRGBField<pcl::PCLPointCloud2> (cloud));
         }
         else if (cloud->fields[f].name == "label")
         {
-          label_idx = f + 1;
+          label_idx = f - invalid_fields_count + 1;
           color_handler.reset (new pcl::visualization::PointCloudColorHandlerLabelField<pcl::PCLPointCloud2> (cloud, !use_optimal_l_colors));
         }
         else
         {
-          if (!isValidFieldName (cloud->fields[f].name))
-            continue;
           color_handler.reset (new pcl::visualization::PointCloudColorHandlerGenericField<pcl::PCLPointCloud2> (cloud, cloud->fields[f].name));
         }
         // Add the cloud to the renderer
-        //p->addPointCloud<pcl::PointXYZ> (cloud_xyz, color_handler, cloud_name.str (), viewport);
-        p->addPointCloud (cloud, color_handler, origin, orientation, cloud_name.str (), viewport);
+        //p->addPointCloud<pcl::PointXYZ> (cloud_xyz, color_handler, cloud_name, viewport);
+        p->addPointCloud (cloud, color_handler, origin, orientation, cloud_name, viewport);
       }
       // Set RGB color handler or label handler as default
-      p->updateColorHandlerIndex (cloud_name.str (), (rgb_idx ? rgb_idx : label_idx));
+      p->updateColorHandlerIndex (cloud_name, (rgb_idx ? rgb_idx : label_idx));
     }
 
     // Additionally, add normals as a handler
     geometry_handler.reset (new pcl::visualization::PointCloudGeometryHandlerSurfaceNormal<pcl::PCLPointCloud2> (cloud));
     if (geometry_handler->isCapable ())
-      //p->addPointCloud<pcl::PointXYZ> (cloud_xyz, geometry_handler, cloud_name.str (), viewport);
-      p->addPointCloud (cloud, geometry_handler, origin, orientation, cloud_name.str (), viewport);
+      //p->addPointCloud<pcl::PointXYZ> (cloud_xyz, geometry_handler, cloud_name, viewport);
+      p->addPointCloud (cloud, geometry_handler, origin, orientation, cloud_name, viewport);
 
     if (use_immediate_rendering)
       // Set immediate mode rendering ON
-      p->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_IMMEDIATE_RENDERING, 1.0, cloud_name.str ());
+      p->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_IMMEDIATE_RENDERING, 1.0, cloud_name);
 
     // Change the cloud rendered point size
-    if (psize.size () > 0)
-      p->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, psize.at (i), cloud_name.str ());
+    if (!psize.empty ())
+      p->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, psize.at (i), cloud_name);
 
     // Change the cloud rendered opacity
-    if (opaque.size () > 0)
-      p->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_OPACITY, opaque.at (i), cloud_name.str ());
+    if (!opaque.empty ())
+      p->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_OPACITY, opaque.at (i), cloud_name);
 
     // Reset camera viewpoint to center of cloud if camera parameters were not passed manually and this is the first loaded cloud
     if (i == 0 && !p->cameraParamsSet () && !p->cameraFileLoaded ())
     {
-      p->resetCameraViewpoint (cloud_name.str ());
+      p->resetCameraViewpoint (cloud_name);
       p->resetCamera ();
     }
 
@@ -679,14 +667,14 @@ main (int argc, char** argv)
   {
     std::string str;
     if (!p_file_indices.empty ())
-      str = std::string (argv[p_file_indices.at (0)]);
+      str = argv[p_file_indices.at (0)];
     else if (!vtk_file_indices.empty ())
-      str = std::string (argv[vtk_file_indices.at (0)]);
+      str = argv[vtk_file_indices.at (0)];
 
-    for (size_t i = 1; i < p_file_indices.size (); ++i)
+    for (std::size_t i = 1; i < p_file_indices.size (); ++i)
       str += ", " + std::string (argv[p_file_indices.at (i)]);
 
-    for (size_t i = 1; i < vtk_file_indices.size (); ++i)
+    for (std::size_t i = 1; i < vtk_file_indices.size (); ++i)
       str += ", " + std::string (argv[vtk_file_indices.at (i)]);
 
     p->addText (str, 5, 5, 10, 1.0, 1.0, 1.0, "text_allnames");
@@ -713,64 +701,52 @@ main (int argc, char** argv)
     xyzcloud.reset ();
   }
 
-  std::string screenshot_filename = "";
-  pcl::console::parse_argument (argc, argv, "-screenshot", screenshot_filename);
-  if(screenshot_filename.length() > 0) {
-    p->saveScreenshot(screenshot_filename);
-  }
-  else {
-    // If we have been given images, create our own loop so that we can spin each individually
-    if (!imgs.empty ())
+  // If we have been given images, create our own loop so that we can spin each individually
+  if (!imgs.empty ())
+  {
+    bool stopped = false;
+    do
     {
-      bool stopped = false;
-      do
-      {
-#if VTK_MAJOR_VERSION>=6 || (VTK_MAJOR_VERSION==5 && VTK_MINOR_VERSION>6)
-        if (ph) ph->spinOnce ();
-#endif
+      if (ph) ph->spinOnce ();
 
-        for (int i = 0; i < int (imgs.size ()); ++i)
+      for (auto &img : imgs)
+      {
+        if (img->wasStopped ())
         {
-          if (imgs[i]->wasStopped ())
-          {
-            stopped = true;
-            break;
-          }
-          imgs[i]->spinOnce ();
+          stopped = true;
+          break;
         }
-          
-        if (p)
-        {
-          if (p->wasStopped ())
-          {
-            stopped = true;
-            break;
-          }
-          p->spinOnce ();
-        }
-        boost::this_thread::sleep (boost::posix_time::microseconds (100));
+        img->spinOnce ();
       }
-      while (!stopped);
+        
+      if (p)
+      {
+        if (p->wasStopped ())
+        {
+          break;
+        }
+        p->spinOnce ();
+      }
+      std::this_thread::sleep_for(100us);
+    }
+    while (!stopped);
+  }
+  else
+  {
+    // If no images, continue
+    if (ph)
+    {
+      //print_highlight ("Setting the global Y range for all histograms to: "); print_value ("%f -> %f\n", min_p, max_p);
+      //ph->setGlobalYRange (min_p, max_p);
+      //ph->updateWindowPositions ();
+      if (p)
+        p->spin ();
+      else
+        ph->spin ();
     }
     else
-    {
-      // If no images, continue
-#if VTK_MAJOR_VERSION>=6 || (VTK_MAJOR_VERSION==5 && VTK_MINOR_VERSION>6)
-      if (ph)
-      {
-        //print_highlight ("Setting the global Y range for all histograms to: "); print_value ("%f -> %f\n", min_p, max_p);
-        //ph->setGlobalYRange (min_p, max_p);
-        //ph->updateWindowPositions ();
-        if (p)
-          p->spin ();
-        else
-          ph->spin ();
-      }
-      else
-#endif
-        if (p)
-          p->spin ();
-    }
+      if (p)
+        p->spin ();
   }
 }
 /* ]--- */
